@@ -6,6 +6,9 @@ import crypto from "crypto";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.get('/', (req, res) => {
+    res.send("API is running!");
+});
 
 // MongoDB connection
 mongoose.connect(" mongodb+srv://spyaduvansi423_db_user:F3hA2zOHhfJuc14V@smart-attendance.ybnduim.mongodb.net/?retryWrites=true&w=majority&appName=smart-attendance")
