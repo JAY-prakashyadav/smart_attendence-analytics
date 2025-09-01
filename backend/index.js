@@ -11,7 +11,7 @@ app.get('/', (req, res) => {
 });
 
 // MongoDB connection
-mongoose.connect(" mongodb+srv://spyaduvansi423_db_user:F3hA2zOHhfJuc14V@smart-attendance.ybnduim.mongodb.net/?retryWrites=true&w=majority&appName=smart-attendance")
+mongoose.connect("mongodb+srv://spyaduvansi423_db_user:F3hA2zOHhfJuc14V@smart-attendance.ybnduim.mongodb.net/?retryWrites=true&w=majority&appName=smart-attendance")
     .then(() => console.log("MongoDB Connected"))
     .catch(err => console.log(err));
 
