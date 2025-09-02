@@ -28,9 +28,9 @@ const SessionSchema = new mongoose.Schema({
 });
 const Session = mongoose.model("Session", SessionSchema);
 
-// Note Schema
+// Note Schema (FIXED teacherId -> ObjectId reference)
 const NoteSchema = new mongoose.Schema({
-  teacherId: { type: String, required: true },
+  teacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   subjectName: { type: String, required: true },
   noteContent: { type: String, required: true },
 });
@@ -156,8 +156,8 @@ app.post("/api/mark-attendance/:sessionId", auth, async (req, res) => {
 // Add Note (Protected)
 app.post("/api/add-note", auth, async (req, res) => {
   try {
-    const { teacherId, subjectName, noteContent } = req.body;
-    const note = new Note({ teacherId, subjectName, noteContent });
+    const { subjectName, noteContent } = req.body;
+    const note = new Note({ teacherId: req.user.id, subjectName, noteContent });
     await note.save();
     res.status(201).json({ message: "Note added successfully" });
   } catch (error) {
@@ -179,8 +179,8 @@ app.get("/api/teacher/:teacherId/routine", async (req, res) => {
     // Get routines for this teacher
     const routines = await Routine.find({ userId: teacher._id });
 
-    // Get notes for this teacher
-    const notes = await Note.find({ teacherId });
+    // Get notes for this teacher (use teacher._id since Note now stores ObjectId)
+    const notes = await Note.find({ teacherId: teacher._id });
 
     res.status(200).json({ routines, notes });
   } catch (error) {
