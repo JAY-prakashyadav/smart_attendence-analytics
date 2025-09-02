@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import { PieChart, Pie, Tooltip, Cell, Legend } from 'recharts';
 
-// Base URL for your backend API (replace with your Render URL)
-const API_URL = "http://localhost:5000";
-//
+// ✅ Replace with your actual Render backend URL
+const API_URL = "https://srv-d2qhj1n5r7bs73amuo70.onrender.com";
+
 // --- Components ---
-// comment added
 const TeacherDashboard = () => {
     const [className, setClassName] = useState('');
     const [teacherId, setTeacherId] = useState('teacher-1');
@@ -21,7 +19,8 @@ const TeacherDashboard = () => {
 
     useEffect(() => {
         fetchTeacherSessions();
-        fetchRoutineAndNotes();
+        fetchRoutine();
+        fetchNotes();
     }, []);
 
     const fetchTeacherSessions = async () => {
@@ -33,13 +32,21 @@ const TeacherDashboard = () => {
         }
     };
 
-    const fetchRoutineAndNotes = async () => {
+    const fetchRoutine = async () => {
         try {
             const response = await axios.get(`${API_URL}/api/teacher/${teacherId}/routine`);
-            setRoutine(response.data.routine);
-            setNotes(response.data.notes);
+            setRoutine(response.data); // backend returns array of {day, classes}
         } catch (error) {
-            setMessage('Failed to fetch routine and notes.');
+            setMessage('Failed to fetch routine.');
+        }
+    };
+
+    const fetchNotes = async () => {
+        try {
+            const response = await axios.get(`${API_URL}/api/notes?teacherId=${teacherId}`);
+            setNotes(response.data);
+        } catch (error) {
+            setMessage('Failed to fetch notes.');
         }
     };
 
@@ -69,13 +76,11 @@ const TeacherDashboard = () => {
             setMessage('Note added successfully!');
             setNewNoteSubject('');
             setNewNoteContent('');
-            fetchRoutineAndNotes(); // Refresh notes after adding
+            fetchNotes();
         } catch (error) {
             setMessage(error.response?.data?.message || 'Error adding note.');
         }
     };
-
-    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#A28F79'];
 
     return (
         <div className="container mx-auto p-4 max-w-2xl">
@@ -85,15 +90,20 @@ const TeacherDashboard = () => {
 
             {/* Routine Section */}
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-                <h3 className="text-xl font-semibold mb-4 text-gray-700">Today's Routine</h3>
+                <h3 className="text-xl font-semibold mb-4 text-gray-700">Routine</h3>
                 {routine.length > 0 ? (
-                    <ul className="list-disc list-inside space-y-2">
-                        {routine.map((item, index) => (
-                            <li key={index} className="text-gray-600">
-                                <strong>{item.subjectName}:</strong> {item.time}
-                            </li>
-                        ))}
-                    </ul>
+                    routine.map((dayRoutine, idx) => (
+                        <div key={idx} className="mb-4">
+                            <h4 className="font-bold text-gray-800">{dayRoutine.day}</h4>
+                            <ul className="list-disc list-inside space-y-1">
+                                {dayRoutine.classes.map((cls, index) => (
+                                    <li key={index} className="text-gray-600">
+                                        {cls.startTime} - {cls.endTime}: <strong>{cls.subjectName}</strong>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))
                 ) : (
                     <p className="text-gray-500 italic">No routine available.</p>
                 )}
@@ -115,7 +125,7 @@ const TeacherDashboard = () => {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-gray-500 italic">No notes available for Mathematics. Add one below!</p>
+                    <p className="text-gray-500 italic">No notes available. Add one below!</p>
                 )}
             </div>
 
@@ -146,7 +156,7 @@ const TeacherDashboard = () => {
                 </button>
             </form>
 
-            {/* Existing Create Session Form */}
+            {/* Create Session Form */}
             <form onSubmit={handleCreateSession} className="bg-gray-50 p-6 rounded-lg shadow-md mb-8">
                 <h3 className="text-xl font-semibold mb-4 text-gray-700">Create New Session</h3>
                 <input
@@ -165,7 +175,6 @@ const TeacherDashboard = () => {
                 </button>
             </form>
 
-            {/* ... Existing session display code... */}
             {currentOtp && (
                 <div className="bg-green-100 text-green-800 p-6 rounded-lg mb-6 text-center shadow-md">
                     <p className="text-xl font-semibold mb-2">New Session OTP:</p>
@@ -209,7 +218,7 @@ const TeacherDashboard = () => {
 
 const StudentDashboard = () => {
     const [otp, setOtp] = useState('');
-    const [studentId, setStudentId] = useState('student-1'); // Placeholder student ID
+    const [studentId, setStudentId] = useState('student-1');
     const [studentName, setStudentName] = useState('');
     const [message, setMessage] = useState('');
 
