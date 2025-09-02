@@ -46,6 +46,28 @@ const SessionSchema = new mongoose.Schema({
 
 const Session = mongoose.model("Session", SessionSchema);
 
+// --- New Database Schemas ---
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true }, // e.g., Roll no. or Emp. ID
+  password: { type: String, required: true },
+  role: { type: String, required: true, enum: ['student', 'teacher'] },
+  name: { type: String, required: true },
+});
+const User = mongoose.model("User", UserSchema);
+
+const RoutineSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  day: { type: String, required: true, enum: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] },
+  classes: [
+    {
+      subjectName: { type: String, required: true },
+      startTime: { type: String, required: true },
+      endTime: { type: String, required: true },
+    },
+  ],
+});
+const Routine = mongoose.model("Routine", RoutineSchema);
+
 // --- New Database Schema for Notes ---
 const NoteSchema = new mongoose.Schema({
     subjectName: { type: String, required: true },
