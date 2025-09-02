@@ -45,6 +45,16 @@ const SessionSchema = new mongoose.Schema({
 });
 
 const Session = mongoose.model("Session", SessionSchema);
+// Add this below the Session model definition
+
+// --- New Database Schema for Notes ---
+const NoteSchema = new mongoose.Schema({
+    subjectName: { type: String, required: true },
+    teacherId: { type: String, required: true },
+    noteContent: { type: String, required: true },
+    date: { type: Date, default: Date.now }
+});
+const Note = mongoose.model("Note", NoteSchema);
 
 // Utility: generate unique OTP (handles rare duplicate collisions)
 async function createUniqueOtp() {
