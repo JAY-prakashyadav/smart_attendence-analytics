@@ -7,7 +7,7 @@ import { PieChart, Pie, Tooltip, Cell, Legend } from 'recharts';
 const API_URL = "http://localhost:5000";
 
 // --- Components ---
-
+// comment added
 const TeacherDashboard = () => {
     const [className, setClassName] = useState('');
     const [teacherId, setTeacherId] = useState('teacher-1');
