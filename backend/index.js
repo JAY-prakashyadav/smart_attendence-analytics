@@ -1,63 +1,66 @@
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
-import crypto from "crypto";
-import dotenv from "dotenv";
+// --- Dependencies ---
+const express = require("express");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+require("dotenv").config();
 
-dotenv.config();
-
+// --- App setup ---
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-// Health check
-app.get("/", (_req, res) => res.send("API is running!"));
+// --- MongoDB Connection ---
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => console.log("MongoDB connected"))
+.catch((err) => console.error("MongoDB connection error:", err));
 
-// --- MongoDB connection ---
-const { MONGO_URI, PORT } = process.env;
+// --- Database Schemas & Models ---
 
-if (!MONGO_URI) {
-    console.error("❌ MONGO_URI is not set. Add it to .env (local) or Render env vars.");
-    process.exit(1);
-}
-
-mongoose
-    .connect(MONGO_URI)
-    .then(() => console.log("✅ MongoDB Connected"))
-    .catch((err) => {
-        console.error("❌ MongoDB Connection Error:", err?.message || err);
-        process.exit(1);
-    });
-
-// --- Schema / Model ---
+// Session Schema
 const SessionSchema = new mongoose.Schema({
-    otp: { type: String, required: true, unique: true },
-    teacherId: { type: String, required: true },
-    className: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now },
-    attendance: [
-        {
-            studentId: String,
-            studentName: String,
-            timestamp: { type: Date, default: Date.now },
-        },
-    ],
+  subjectName: { type: String, required: true },
+  date: { type: Date, default: Date.now },
+  studentsPresent: [String], // roll numbers of students
 });
-
 const Session = mongoose.model("Session", SessionSchema);
 
-// --- New Database Schemas ---
+// Note Schema
+const NoteSchema = new mongoose.Schema({
+  teacherId: { type: String, required: true },
+  subjectName: { type: String, required: true },
+  noteContent: { type: String, required: true },
+});
+const Note = mongoose.model("Note", NoteSchema);
+
+// User Schema
 const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true }, // e.g., Roll no. or Emp. ID
+  username: { type: String, required: true, unique: true }, // roll no. or emp ID
   password: { type: String, required: true },
-  role: { type: String, required: true, enum: ['student', 'teacher'] },
+  role: { type: String, required: true, enum: ["student", "teacher"] },
   name: { type: String, required: true },
 });
 const User = mongoose.model("User", UserSchema);
 
+// Routine Schema
 const RoutineSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  day: { type: String, required: true, enum: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  day: {
+    type: String,
+    required: true,
+    enum: [
+      "MONDAY",
+      "TUESDAY",
+      "WEDNESDAY",
+      "THURSDAY",
+      "FRIDAY",
+      "SATURDAY",
+      "SUNDAY",
+    ],
+  },
   classes: [
     {
       subjectName: { type: String, required: true },
@@ -68,185 +71,124 @@ const RoutineSchema = new mongoose.Schema({
 });
 const Routine = mongoose.model("Routine", RoutineSchema);
 
-// --- New Database Schema for Notes ---
-const NoteSchema = new mongoose.Schema({
-    subjectName: { type: String, required: true },
-    teacherId: { type: String, required: true },
-    noteContent: { type: String, required: true },
-    date: { type: Date, default: Date.now }
-});
-const Note = mongoose.model("Note", NoteSchema);
+// --- Auth Middleware ---
+function auth(req, res, next) {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ message: "No token provided" });
 
-// Utility: generate unique OTP (handles rare duplicate collisions)
-async function createUniqueOtp() {
-    for (let i = 0; i < 5; i++) {
-        const otp = crypto.randomBytes(3).toString("hex").toUpperCase(); // 6 chars
-        const exists = await Session.exists({ otp });
-        if (!exists) return otp;
-    }
-    // Extremely unlikely, but fallback to longer OTP
-    return crypto.randomBytes(4).toString("hex").toUpperCase();
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(403).json({ message: "Invalid token" });
+  }
 }
 
-// --- Routes ---
-// Create session
+// --- API Routes ---
 
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-
-// --- New Routes ---
-
-// Register a new user
+// Register User
 app.post("/api/register", async (req, res) => {
   try {
     const { username, password, role, name } = req.body;
-    if (!username || !password || !role || !name) {
-      return res.status(400).json({ message: "All fields are required." });
-    }
-
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword, role, name });
-    await newUser.save();
-
-    res.status(201).json({ message: "User registered successfully." });
+    const user = new User({ username, password: hashedPassword, role, name });
+    await user.save();
+    res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ message: "Failed to register user." });
+    res.status(400).json({ message: "Error registering user", error });
   }
 });
 
-// User login
+// Login User
 app.post("/api/login", async (req, res) => {
   try {
-    const { username, password, role } = req.body;
-    const user = await User.findOne({ username, role });
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: "Invalid credentials." });
-    }
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) return res.status(401).json({ message: "Invalid password" });
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    res.status(200).json({ token, role: user.role });
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    res.status(200).json({ token });
   } catch (error) {
-    console.error("Error logging in:", error);
-    res.status(500).json({ message: "Login failed." });
+    res.status(500).json({ message: "Login failed", error });
   }
 });
 
-
-app.post("/api/create-session", async (req, res) => {
-    try {
-        const { teacherId, className } = req.body;
-        if (!teacherId || !className) {
-            return res.status(400).json({ message: "teacherId and className are required." });
-        }
-
-        const otp = await createUniqueOtp();
-        const newSession = new Session({ otp, teacherId, className });
-        await newSession.save();
-
-        res.status(201).json({ message: "Session created successfully", otp });
-    } catch (error) {
-        console.error("Error creating session:", error);
-        res.status(500).json({ message: "Failed to create session" });
-    }
+// Create Session (Protected)
+app.post("/api/create-session", auth, async (req, res) => {
+  try {
+    const { subjectName } = req.body;
+    const session = new Session({ subjectName, studentsPresent: [] });
+    await session.save();
+    res.status(201).json({ message: "Session created", sessionId: session._id });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to create session", error });
+  }
 });
 
-// Mark attendance
-app.post("/api/mark-attendance", async (req, res) => {
-    try {
-        const { otp, studentId, studentName } = req.body;
-        if (!otp || !studentId || !studentName) {
-            return res.status(400).json({ message: "otp, studentId, studentName are required." });
-        }
+// Mark Attendance (Protected)
+app.post("/api/mark-attendance/:sessionId", auth, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { rollNumber } = req.body;
 
-        const session = await Session.findOne({ otp });
-        if (!session) {
-            return res.status(404).json({ message: "Invalid or expired OTP." });
-        }
+    const session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ message: "Session not found" });
 
-        const already = session.attendance.some((a) => a.studentId === studentId);
-        if (already) {
-            return res
-                .status(409)
-                .json({ message: "You have already marked attendance for this session." });
-        }
-
-        session.attendance.push({ studentId, studentName });
-        await session.save();
-
-        res.status(200).json({ message: "Attendance marked successfully." });
-    } catch (error) {
-        console.error("Error marking attendance:", error);
-        res.status(500).json({ message: "Failed to mark attendance" });
+    if (!session.studentsPresent.includes(rollNumber)) {
+      session.studentsPresent.push(rollNumber);
+      await session.save();
     }
+
+    res.status(200).json({ message: "Attendance marked" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to mark attendance", error });
+  }
 });
 
-// Get a session by OTP
-app.get("/api/sessions/:otp", async (req, res) => {
-    try {
-        const session = await Session.findOne({ otp: req.params.otp });
-        if (!session) return res.status(404).json({ message: "Session not found." });
-        res.status(200).json(session);
-    } catch (error) {
-        console.error("Error fetching session:", error);
-        res.status(500).json({ message: "Failed to fetch session" });
-    }
+// Add Note (Protected)
+app.post("/api/add-note", auth, async (req, res) => {
+  try {
+    const { teacherId, subjectName, noteContent } = req.body;
+    const note = new Note({ teacherId, subjectName, noteContent });
+    await note.save();
+    res.status(201).json({ message: "Note added successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add note", error });
+  }
 });
 
-// Get all sessions for a teacher
-app.get("/api/teacher/:teacherId/sessions", async (req, res) => {
-    try {
-        const sessions = await Session.find({ teacherId: req.params.teacherId }).sort({ createdAt: -1 });
-        res.status(200).json(sessions);
-    } catch (error) {
-        console.error("Error fetching teacher sessions:", error);
-        res.status(500).json({ message: "Failed to fetch teacher sessions" });
-    }
-});
-
-// --- New API Route to get routine and notes for a teacher ---
+// Get Routine + Notes for Teacher
 app.get("/api/teacher/:teacherId/routine", async (req, res) => {
-    try {
-        const { teacherId } = req.params;
+  try {
+    const { teacherId } = req.params;
 
-        // This is where you would get the routine data from your database.
-        // For now, we'll use a hardcoded example.
-        const routine = [
-            { subjectName: "Mathematics", time: "9:00 AM - 10:00 AM" },
-            { subjectName: "Physics", time: "10:00 AM - 11:00 AM" }
-        ];
-
-        // This is where you would get the notes from your database.
-        const notes = await Note.find({ teacherId: teacherId, subjectName: "Mathematics" });
-
-        res.status(200).json({ routine, notes });
-
-    } catch (error) {
-        console.error("Error fetching routine:", error);
-        res.status(500).json({ message: "Failed to fetch routine" });
+    // Find teacher user
+    const teacher = await User.findOne({ username: teacherId, role: "teacher" });
+    if (!teacher) {
+      return res.status(404).json({ message: "Teacher not found." });
     }
+
+    // Get routines for this teacher
+    const routines = await Routine.find({ userId: teacher._id });
+
+    // Get notes for this teacher
+    const notes = await Note.find({ teacherId });
+
+    res.status(200).json({ routines, notes });
+  } catch (error) {
+    console.error("Error fetching routine:", error);
+    res.status(500).json({ message: "Failed to fetch routine" });
+  }
 });
 
-// --- New API Route to add a new note ---
-app.post("/api/notes", async (req, res) => {
-    try {
-        const { subjectName, teacherId, noteContent } = req.body;
-
-        const newNote = new Note({ subjectName, teacherId, noteContent });
-        await newNote.save();
-
-        res.status(201).json({ message: "Note added successfully" });
-
-    } catch (error) {
-        console.error("Error adding note:", error);
-        res.status(500).json({ message: "Failed to add note" });
-    }
-});
-
-// Start server
-const port = Number(PORT) || 5000;
-app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
+// --- Start Server ---
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
