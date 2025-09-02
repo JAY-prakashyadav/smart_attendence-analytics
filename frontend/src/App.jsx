@@ -5,7 +5,7 @@ import { PieChart, Pie, Tooltip, Cell, Legend } from 'recharts';
 
 // Base URL for your backend API (replace with your Render URL)
 const API_URL = "http://localhost:5000";
-
+//
 // --- Components ---
 // comment added
 const TeacherDashboard = () => {
