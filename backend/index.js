@@ -28,7 +28,7 @@ const SessionSchema = new mongoose.Schema({
 });
 const Session = mongoose.model("Session", SessionSchema);
 
-// Note Schema (FIXED teacherId -> ObjectId reference)
+// Note Schema
 const NoteSchema = new mongoose.Schema({
   teacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   subjectName: { type: String, required: true },
@@ -165,21 +165,45 @@ app.post("/api/add-note", auth, async (req, res) => {
   }
 });
 
+// Add a routine for a user (teacher)
+app.post("/api/routine", auth, async (req, res) => {
+  try {
+    const { day, classes } = req.body;
+    const newRoutine = new Routine({ userId: req.user.id, day, classes });
+    await newRoutine.save();
+    res.status(201).json({ message: "Routine added successfully." });
+  } catch (error) {
+    console.error("Error adding routine:", error);
+    res.status(500).json({ message: "Failed to add routine." });
+  }
+});
+
+// Get today's routine for a user
+app.get("/api/routine/:userId", async (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+    const routine = await Routine.findOne({ userId: req.params.userId, day: today });
+    if (!routine) {
+      return res.status(404).json({ message: "No routine found for today." });
+    }
+    res.status(200).json(routine);
+  } catch (error) {
+    console.error("Error fetching routine:", error);
+    res.status(500).json({ message: "Failed to fetch routine." });
+  }
+});
+
 // Get Routine + Notes for Teacher
 app.get("/api/teacher/:teacherId/routine", async (req, res) => {
   try {
     const { teacherId } = req.params;
 
-    // Find teacher user
     const teacher = await User.findOne({ username: teacherId, role: "teacher" });
     if (!teacher) {
       return res.status(404).json({ message: "Teacher not found." });
     }
 
-    // Get routines for this teacher
     const routines = await Routine.find({ userId: teacher._id });
-
-    // Get notes for this teacher (use teacher._id since Note now stores ObjectId)
     const notes = await Note.find({ teacherId: teacher._id });
 
     res.status(200).json({ routines, notes });
@@ -187,13 +211,7 @@ app.get("/api/teacher/:teacherId/routine", async (req, res) => {
     console.error("Error fetching routine:", error);
     res.status(500).json({ message: "Failed to fetch routine" });
   }
-});  
-// Add a routine for a user (teacher)
-app.post("/api/routine", async (req, res) => { ... });
-
-// Get today's routine for a user
-app.get("/api/routine/:userId", async (req, res) => { ... });
-
+});
 
 // --- Start Server ---
 const PORT = process.env.PORT || 5000;
