@@ -187,7 +187,13 @@ app.get("/api/teacher/:teacherId/routine", async (req, res) => {
     console.error("Error fetching routine:", error);
     res.status(500).json({ message: "Failed to fetch routine" });
   }
-});
+});  
+// Add a routine for a user (teacher)
+app.post("/api/routine", async (req, res) => { ... });
+
+// Get today's routine for a user
+app.get("/api/routine/:userId", async (req, res) => { ... });
+
 
 // --- Start Server ---
 const PORT = process.env.PORT || 5000;
