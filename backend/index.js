@@ -1,34 +1,43 @@
 // --- Dependencies ---
-const express = require("express");
-const mongoose = require("mongoose");
-const bodyParser = require("body-parser");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-require("dotenv").config();
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import bodyParser from "body-parser";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // --- App setup ---
 const app = express();
+app.use(cors());
 app.use(bodyParser.json());
 
 // --- MongoDB Connection ---
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log("MongoDB connected"))
-.catch((err) => console.error("MongoDB connection error:", err));
+const { MONGO_URI, PORT, JWT_SECRET } = process.env;
+
+if (!MONGO_URI) {
+  console.error("❌ MONGO_URI is not set. Add it to .env or Render env vars.");
+  process.exit(1);
+}
+
+mongoose
+  .connect(MONGO_URI)
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Error:", err?.message || err);
+    process.exit(1);
+  });
 
 // --- Database Schemas & Models ---
-
-// Session Schema
 const SessionSchema = new mongoose.Schema({
   subjectName: { type: String, required: true },
   date: { type: Date, default: Date.now },
-  studentsPresent: [String], // roll numbers of students
+  studentsPresent: [String],
 });
 const Session = mongoose.model("Session", SessionSchema);
 
-// Note Schema
 const NoteSchema = new mongoose.Schema({
   teacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   subjectName: { type: String, required: true },
@@ -36,16 +45,14 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model("Note", NoteSchema);
 
-// User Schema
 const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true }, // roll no. or emp ID
+  username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: String, required: true, enum: ["student", "teacher"] },
   name: { type: String, required: true },
 });
 const User = mongoose.model("User", UserSchema);
 
-// Routine Schema
 const RoutineSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   day: {
@@ -72,18 +79,18 @@ const RoutineSchema = new mongoose.Schema({
 const Routine = mongoose.model("Routine", RoutineSchema);
 
 // --- Auth Middleware ---
-function auth(req, res, next) {
+const auth = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "No token provided" });
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (err) {
     res.status(403).json({ message: "Invalid token" });
   }
-}
+};
 
 // --- API Routes ---
 
@@ -112,7 +119,7 @@ app.post("/api/login", async (req, res) => {
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: "1h" }
     );
 
@@ -122,8 +129,8 @@ app.post("/api/login", async (req, res) => {
         id: user._id,
         role: user.role,
         name: user.name,
-        username: user.username
-      }
+        username: user.username,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Login failed", error });
@@ -147,7 +154,6 @@ app.post("/api/mark-attendance/:sessionId", auth, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const { rollNumber } = req.body;
-
     const session = await Session.findById(sessionId);
     if (!session) return res.status(404).json({ message: "Session not found" });
 
@@ -155,7 +161,6 @@ app.post("/api/mark-attendance/:sessionId", auth, async (req, res) => {
       session.studentsPresent.push(rollNumber);
       await session.save();
     }
-
     res.status(200).json({ message: "Attendance marked" });
   } catch (error) {
     res.status(500).json({ message: "Failed to mark attendance", error });
@@ -206,15 +211,12 @@ app.get("/api/routine/:userId", async (req, res) => {
 app.get("/api/teacher/:teacherId/routine", async (req, res) => {
   try {
     const { teacherId } = req.params;
-
     const teacher = await User.findOne({ username: teacherId, role: "teacher" });
     if (!teacher) {
       return res.status(404).json({ message: "Teacher not found." });
     }
-
     const routines = await Routine.find({ userId: teacher._id });
     const notes = await Note.find({ teacherId: teacher._id });
-
     res.status(200).json({ routines, notes });
   } catch (error) {
     console.error("Error fetching routine:", error);
@@ -223,5 +225,5 @@ app.get("/api/teacher/:teacherId/routine", async (req, res) => {
 });
 
 // --- Start Server ---
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const port = Number(PORT) || 5000;
+app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
