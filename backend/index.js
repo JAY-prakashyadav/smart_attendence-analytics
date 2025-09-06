@@ -1,3 +1,4 @@
+// --- Dependencies ---
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -5,6 +6,7 @@ import bodyParser from "body-parser";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import crypto from "crypto";   // ✅ Added
 
 dotenv.config();
 
@@ -13,14 +15,15 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- MongoDB Connection ---
+// --- Environment Variables ---
 const { MONGO_URI, PORT, JWT_SECRET } = process.env;
 
-if (!MONGO_URI) {
-  console.error("❌ MONGO_URI is not set. Add it to .env or Render env vars.");
+if (!MONGO_URI || !JWT_SECRET) {
+  console.error("❌ Missing MONGO_URI or JWT_SECRET. Check your .env file.");
   process.exit(1);
 }
 
+// --- MongoDB Connection ---
 mongoose
   .connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
@@ -30,7 +33,6 @@ mongoose
   });
 
 // --- Database Schemas & Models ---
-// Original Session Schema
 const SessionSchema = new mongoose.Schema({
   otp: { type: String, required: true, unique: true },
   teacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -45,7 +47,6 @@ const SessionSchema = new mongoose.Schema({
 });
 const Session = mongoose.model("Session", SessionSchema);
 
-// Note Schema
 const NoteSchema = new mongoose.Schema({
   teacherId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   subjectName: { type: String, required: true },
@@ -53,7 +54,6 @@ const NoteSchema = new mongoose.Schema({
 });
 const Note = mongoose.model("Note", NoteSchema);
 
-// User Schema
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -62,7 +62,6 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", UserSchema);
 
-// Routine Schema
 const RoutineSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   day: {
@@ -112,6 +111,9 @@ app.post("/api/register", async (req, res) => {
     await user.save();
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Username already exists" });
+    }
     res.status(400).json({ message: "Error registering user", error });
   }
 });
@@ -142,13 +144,13 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// Create Session (Protected - Teacher only)
+// Create Session (Teacher only)
 app.post("/api/create-session", auth, async (req, res) => {
   try {
-    if (req.user.role !== 'teacher') {
+    if (req.user.role !== "teacher") {
       return res.status(403).json({ message: "Unauthorized." });
     }
-    const { subjectName, className } = req.body;
+    const { className } = req.body;
     const otp = crypto.randomBytes(3).toString("hex").toUpperCase();
     const session = new Session({ otp, teacherId: req.user.id, className });
     await session.save();
@@ -158,35 +160,33 @@ app.post("/api/create-session", auth, async (req, res) => {
   }
 });
 
-// Mark Attendance (Protected - Student only)
+// Mark Attendance (Student only)
 app.post("/api/mark-attendance", auth, async (req, res) => {
   try {
-    if (req.user.role !== 'student') {
+    if (req.user.role !== "student") {
       return res.status(403).json({ message: "Unauthorized." });
     }
     const { otp } = req.body;
     const session = await Session.findOne({ otp });
     if (!session) return res.status(404).json({ message: "Session not found or expired." });
-    
-    // Check if the student has already marked attendance for this session
+
     const studentId = req.user.id;
     if (session.attendance.some(att => att.studentId.toString() === studentId)) {
-        return res.status(409).json({ message: "You have already marked attendance for this session." });
+      return res.status(409).json({ message: "You have already marked attendance for this session." });
     }
-    
+
     session.attendance.push({ studentId });
     await session.save();
     res.status(200).json({ message: "Attendance marked successfully." });
   } catch (error) {
-    console.error("Failed to mark attendance", error);
     res.status(500).json({ message: "Failed to mark attendance", error });
   }
 });
 
-// Add Note (Protected - Teacher only)
+// Add Note (Teacher only)
 app.post("/api/add-note", auth, async (req, res) => {
   try {
-    if (req.user.role !== 'teacher') {
+    if (req.user.role !== "teacher") {
       return res.status(403).json({ message: "Unauthorized." });
     }
     const { subjectName, noteContent } = req.body;
@@ -198,10 +198,10 @@ app.post("/api/add-note", auth, async (req, res) => {
   }
 });
 
-// Add a routine for a user (teacher)
+// Add Routine (Teacher only)
 app.post("/api/routine", auth, async (req, res) => {
   try {
-    if (req.user.role !== 'teacher') {
+    if (req.user.role !== "teacher") {
       return res.status(403).json({ message: "Unauthorized." });
     }
     const { day, classes } = req.body;
@@ -209,27 +209,25 @@ app.post("/api/routine", auth, async (req, res) => {
     await newRoutine.save();
     res.status(201).json({ message: "Routine added successfully." });
   } catch (error) {
-    console.error("Error adding routine:", error);
-    res.status(500).json({ message: "Failed to add routine." });
+    res.status(500).json({ message: "Failed to add routine.", error });
   }
 });
 
-// Get notes for a specific subject
+// Get Notes by Subject
 app.get("/api/notes/:subjectName", auth, async (req, res) => {
   try {
     const { subjectName } = req.params;
     const notes = await Note.find({ subjectName });
-    if (!notes) {
+    if (!notes.length) {
       return res.status(404).json({ message: "No notes found for this subject." });
     }
     res.status(200).json(notes);
   } catch (error) {
-    console.error("Error fetching notes:", error);
     res.status(500).json({ message: "Failed to fetch notes." });
   }
 });
 
-// Get a student's attendance percentage for a specific subject
+// Get Attendance %
 app.get("/api/attendance/:userId/:subjectName", auth, async (req, res) => {
   try {
     const { userId, subjectName } = req.params;
@@ -239,18 +237,17 @@ app.get("/api/attendance/:userId/:subjectName", auth, async (req, res) => {
     }
     const attendedSessions = await Session.countDocuments({
       className: subjectName,
-      'attendance.studentId': userId
+      "attendance.studentId": userId,
     });
     const attendancePercentage = (attendedSessions / totalSessions) * 100;
     res.status(200).json({ attendancePercentage: Math.round(attendancePercentage) });
   } catch (error) {
-    console.error("Error calculating attendance:", error);
     res.status(500).json({ message: "Failed to calculate attendance." });
   }
 });
 
-// Get today's routine for a user
-app.get("/api/routine/:userId", async (req, res) => {
+// Get Today's Routine
+app.get("/api/routine/:userId", auth, async (req, res) => {
   try {
     const today = new Date().toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
     const routine = await Routine.findOne({ userId: req.params.userId, day: today });
@@ -259,21 +256,19 @@ app.get("/api/routine/:userId", async (req, res) => {
     }
     res.status(200).json(routine);
   } catch (error) {
-    console.error("Error fetching routine:", error);
     res.status(500).json({ message: "Failed to fetch routine." });
   }
 });
 
-// Get Routine + Notes for Teacher
-app.get("/api/teacher/:teacherId/routine", async (req, res) => {
+// Get Teacher's Routine + Notes
+app.get("/api/teacher/:teacherId/routine", auth, async (req, res) => {
   try {
     const { teacherId } = req.params;
     const routines = await Routine.find({ userId: teacherId });
     const notes = await Note.find({ teacherId });
     res.status(200).json({ routines, notes });
   } catch (error) {
-    console.error("Error fetching routine:", error);
-    res.status(500).json({ message: "Failed to fetch routine" });
+    res.status(500).json({ message: "Failed to fetch teacher data" });
   }
 });
 
